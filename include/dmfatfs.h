@@ -8,44 +8,46 @@
 #include "dmfatfs_defs.h"
 
 /**
- * Public API for the dmfatfs module.
+ * dmfatfs - FAT12/FAT16/FAT32/exFAT file system for DMOD, based on FatFs.
  *
- * Functions are declared with the dmod_dmfatfs_api(...) macro - dmod's
- * standard pattern for functions callable from other modules (or from this
- * module's own tests/), resolved dynamically by the loader rather than
- * through normal static linkage. See dm_sw_ring/include/dm_sw_ring.h for a
- * fully worked real-world example of the same shape.
+ * The file system itself is used through dmvfs - dmfatfs implements the
+ * dmfsi DIF, so it is mounted like any other file system:
  *
- * Definitions in src/dmfatfs.c use the matching
- * dmod_dmfatfs_api_declaration(...) macro - a plain C function
- * definition here will NOT satisfy these declarations at link time.
+ *     dmvfs_mount_fs("dmfatfs", "/mnt/sd", "device=/dev/dmsdio0/0");
  *
- * This is an example interface using the usual "opaque handle" pattern -
- * replace the handle, functions, and struct definition in
- * src/dmfatfs.c with your module's real API.
+ * The functions below are the module's own API, for work that happens
+ * outside of a mount (e.g. formatting a device before it can be mounted).
  */
 
-/* Opaque handle - the real struct is defined in src/dmfatfs.c */
-typedef struct dmfatfs* dmfatfs_t;
+/** File system created by dmfatfs_mkfs(). */
+typedef enum
+{
+    dmfatfs_type_auto = 0,  /**< FAT12/16/32 by volume size, exFAT from 32 GiB up */
+    dmfatfs_type_fat,       /**< FAT12 or FAT16, by volume size */
+    dmfatfs_type_fat32,     /**< FAT32 */
+    dmfatfs_type_exfat,     /**< exFAT */
+} dmfatfs_type_t;
 
-/**
- * Create a new dmfatfs instance.
- *
- * @return A valid handle on success, or NULL on allocation failure.
- */
-dmod_dmfatfs_api(1.0, dmfatfs_t, _create, ( void ));
-
-/**
- * Destroy an instance created by dmfatfs_create(). Safe to call with
- * NULL.
- */
-dmod_dmfatfs_api(1.0, void, _destroy, ( dmfatfs_t handle ));
+/** Options of dmfatfs_mkfs(). Zero-initialized options are the defaults. */
+typedef struct
+{
+    dmfatfs_type_t  type;           /**< File system type */
+    bool            no_partition;   /**< true: file system directly on the device (no MBR/GPT) */
+    uint32_t        cluster_size;   /**< Cluster size in bytes, 0 for the default of the volume size */
+} dmfatfs_mkfs_options_t;
 
 /**
- * Example accessor - replace with your module's real API.
+ * Create a new FAT file system on a block device (or an image file).
  *
- * @return true if handle is a valid, non-NULL instance.
+ * All data on the device is lost. The device must not be mounted. By
+ * default a partition table with a single partition is created (like a
+ * factory formatted SD card); either way, the device node itself can be
+ * mounted afterwards, dmfatfs finds the file system in the first partition.
+ *
+ * @param device_path Path of the device, e.g. "/dev/dmsdio0/0"
+ * @param options     Options, or NULL for the defaults
+ * @return 0 on success, negative errno on failure
  */
-dmod_dmfatfs_api(1.0, bool, _is_valid, ( dmfatfs_t handle ));
+dmod_dmfatfs_api(1.0, int, _mkfs, ( const char* device_path, const dmfatfs_mkfs_options_t* options ));
 
 #endif // DMFATFS_H

@@ -27,7 +27,7 @@ set(DMOD_BUILD_TEMPLATES OFF CACHE BOOL "Build templates")
 FetchContent_MakeAvailable(dmod)
 
 project(dmfatfs VERSION ${DMOD_MODULE_VERSION}
-    DESCRIPTION "dmfatfs DMOD library module"
+    DESCRIPTION "FAT/exFAT file system for DMOD (FatFs based)"
     LANGUAGES C CXX)
 
 set(DMOD_DIR ${dmod_SOURCE_DIR} CACHE PATH "DMOD source directory")
@@ -59,22 +59,50 @@ set(DMOD_DIF_IMPLS          )
 #   and can be used in the same way after the creation
 #   (for example, to link libraries)
 #
+# Number of FAT volumes that can be mounted (or formatted) at the same time,
+# and of files that can be open at the same time on all of them (FatFs file
+# lock table). See src/ffconf.h.
+set(DMFATFS_MAX_VOLUMES         4  CACHE STRING "Maximum number of mounted FAT volumes (1-10)")
+set(DMFATFS_MAX_LOCKED_FILES    16 CACHE STRING "Maximum number of files open at once")
+
 dmod_add_library(${DMOD_MODULE_NAME} ${DMOD_MODULE_VERSION}
     # List of source files - can include C and C++ files
     src/dmfatfs.c
+    src/dmfatfs_file.c
+    src/dmfatfs_dir.c
+    src/dmfatfs_disk.c
+    src/dmfatfs_system.c
+    src/dmfatfs_util.c
+    src/dmfatfs_libc.c
+    # FatFs R0.16 (upstream sources, configured by src/ffconf.h)
+    lib/fatfs/ff.c
+    lib/fatfs/ffunicode.c
 )
 
 target_include_directories(${DMOD_MODULE_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/lib/fatfs
+)
+
+target_compile_definitions(${DMOD_MODULE_NAME} PRIVATE
+    DMFATFS_MAX_VOLUMES=${DMFATFS_MAX_VOLUMES}
+    DMFATFS_MAX_LOCKED_FILES=${DMFATFS_MAX_LOCKED_FILES}
 )
 
 target_include_directories(${DMOD_MODULE_NAME}_if INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-# To depend on another module's headers, use:
-#   dmod_link_modules(${DMOD_MODULE_NAME}
-#       other_module@1.0
-#   )
+# dmfsi: the file system interface (DIF) implemented by dmfatfs
+# dmdrvi: DMDRVI_IOCTL_BLOCK_GET_INFO, the geometry of dmdevfs block nodes
+dmod_link_modules(${DMOD_MODULE_NAME}
+    dmfsi
+    dmdrvi@>=2.0
+)
+
+# mkfatfs - command line front end of dmfatfs_mkfs()
+add_subdirectory(apps/mkfatfs)
+
 enable_testing()
 add_subdirectory(tests)
