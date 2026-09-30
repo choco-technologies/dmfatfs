@@ -3,3 +3,7 @@ $include https://github.com/choco-technologies/dmfatfs/releases/download/vlatest
 
 # Module entry with version placeholder - expanded by $version-available
 dmfatfs https://github.com/choco-technologies/dmfatfs/releases/download/v<version>/dmfatfs-v<version>-<arch_name>.zip
+
+# mkfatfs - command line front end of dmfatfs_mkfs() (apps/mkfatfs), built
+# and released together with dmfatfs
+mkfatfs https://github.com/choco-technologies/dmfatfs/releases/download/v<version>/mkfatfs-v<version>-<arch_name>.zip
