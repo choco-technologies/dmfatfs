@@ -79,7 +79,24 @@ static int open_device(disk_t* disk, const char* device_path)
     return ret;
 }
 
-/* A device is attached at most once - two FatFs volumes on one medium would corrupt it. */
+static void log_in_use(const char* device_path, const char* attached_path)
+{
+    if (strcmp(device_path, attached_path) == 0)
+    {
+        DMOD_LOG_ERROR("'%s' is already mounted or being formatted\n", device_path);
+    }
+    else
+    {
+        DMOD_LOG_ERROR("'%s' overlaps '%s', which is already mounted or being formatted\n",
+                       device_path, attached_path);
+    }
+}
+
+/*
+ * Two FatFs drives writing the same sectors (the same node twice, or a whole
+ * device and one of its partitions) would corrupt the medium: such a device
+ * is refused while the other one is attached.
+ */
 static int reserve_drive(const char* device_path)
 {
     int free_drive = -EBUSY;
@@ -89,9 +106,9 @@ static int reserve_drive(const char* device_path)
         {
             free_drive = drive;
         }
-        else if (strcmp(g_disks[drive].path, device_path) == 0)
+        else if (dmfatfs_paths_overlap(g_disks[drive].path, device_path))
         {
-            DMOD_LOG_ERROR("'%s' is already in use\n", device_path);
+            log_in_use(device_path, g_disks[drive].path);
             return -EBUSY;
         }
     }
@@ -108,10 +125,10 @@ int dmfatfs_disk_attach(const char* device_path)
     {
         return -EINVAL;
     }
-    char* path = Dmod_StrDup(device_path);
+    char* path = dmfatfs_canonical_path(device_path);
     if (path == NULL)
     {
-        return -ENOMEM;
+        return (*device_path == '\0') ? -EINVAL : -ENOMEM;
     }
     dmfatfs_lock();
     int drive = reserve_drive(path);

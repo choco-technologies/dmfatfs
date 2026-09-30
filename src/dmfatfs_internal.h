@@ -97,4 +97,19 @@ uint32_t dmfatfs_attr_to_dmfsi(BYTE attr);
  */
 char* dmfatfs_parse_device(const char* config);
 
+/**
+ * Absolute form of a device path (relative to the caller's working
+ * directory), without "//", "." and ".." components. Heap-owned, NULL on
+ * failure.
+ */
+char* dmfatfs_canonical_path(const char* path);
+
+/**
+ * True if two canonical device paths can refer to the same sectors: the
+ * same node, or a whole device and one of its partitions - dmdevfs names
+ * partition nodes "<device>p<number>" (e.g. /dev/dmsdio0/0 and
+ * /dev/dmsdio0/0p1). Different partitions of one device do not overlap.
+ */
+bool  dmfatfs_paths_overlap(const char* a, const char* b);
+
 #endif // DMFATFS_INTERNAL_H

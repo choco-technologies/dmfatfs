@@ -16,6 +16,8 @@
 #define IMAGE_SIZE      (8u * 1024u * 1024u)
 #define CHUNK_SIZE      4096u
 #define BIG_FILE_SIZE   (200u * 1024u + 123u)
+#define SMALL_IMAGE_SIZE (1024u * 1024u)
+#define MAX_VOLUMES     4       /* DMFATFS_MAX_VOLUMES default */
 
 typedef struct
 {
@@ -64,21 +66,33 @@ static bool load_module(void)
            GET_DIF(m, mkdir) && GET_DIF(m, direxists);
 }
 
-static bool create_image(void)
+static bool create_image_file(const char* path, uint32_t size)
 {
     static uint8_t zeros[CHUNK_SIZE];
-    void* file = Dmod_FileOpen(IMAGE_PATH, "wb");
+    void* file = Dmod_FileOpen(path, "wb");
     if (file == NULL)
     {
         return false;
     }
     bool ok = true;
-    for (uint32_t written = 0; ok && written < IMAGE_SIZE; written += CHUNK_SIZE)
+    for (uint32_t written = 0; ok && written < size; written += CHUNK_SIZE)
     {
         ok = Dmod_FileWrite(zeros, 1, CHUNK_SIZE, file) == CHUNK_SIZE;
     }
     Dmod_FileClose(file);
     return ok;
+}
+
+static bool create_image(void)
+{
+    return create_image_file(IMAGE_PATH, IMAGE_SIZE);
+}
+
+/* Small image with a file system and no partition table, for extra volumes. */
+static bool create_volume_image(const char* path)
+{
+    dmfatfs_mkfs_options_t options = { .no_partition = true };
+    return create_image_file(path, SMALL_IMAGE_SIZE) && dmfatfs_mkfs(path, &options) == 0;
 }
 
 void dmod_test_setup(void)
@@ -146,6 +160,103 @@ DMOD_TEST_STEP(device_cannot_be_used_twice)
 {
     DMOD_TEST_EXPECT_NULL(g_fs.init(IMAGE_PATH));
     DMOD_TEST_EXPECT_NE(dmfatfs_mkfs(IMAGE_PATH, NULL), 0);
+}
+
+DMOD_TEST_STEP(same_node_spelled_differently_is_refused)
+{
+    DMOD_TEST_EXPECT_NULL(g_fs.init("./" IMAGE_PATH));
+    DMOD_TEST_EXPECT_NULL(g_fs.init("no_dir/../" IMAGE_PATH));
+    DMOD_TEST_EXPECT_NULL(g_fs.init(".//./" IMAGE_PATH));
+    DMOD_TEST_EXPECT_EQ(dmfatfs_mkfs("./" IMAGE_PATH, NULL), -EBUSY);
+}
+
+DMOD_TEST_STEP(partition_of_mounted_device_is_refused)
+{
+    /* Checked before the node is opened - it does not even have to exist. */
+    DMOD_TEST_EXPECT_EQ(dmfatfs_mkfs(IMAGE_PATH "p1", NULL), -EBUSY);
+    DMOD_TEST_EXPECT_TRUE(create_volume_image(IMAGE_PATH "x"));
+    DMOD_TEST_EXPECT_NULL(g_fs.init(IMAGE_PATH "p1"));
+    /* Not partition names of the mounted device */
+    dmfsi_context_t other = g_fs.init(IMAGE_PATH "x");
+    DMOD_TEST_EXPECT_NOT_NULL(other);
+    if (other != NULL)
+    {
+        g_fs.deinit(other);
+    }
+    Dmod_FileRemove(IMAGE_PATH "x");
+}
+
+DMOD_TEST_STEP(device_of_mounted_partition_is_refused)
+{
+    g_fs.deinit(g_ctx);
+    g_ctx = NULL;
+    DMOD_TEST_EXPECT_TRUE(create_volume_image(IMAGE_PATH "p1"));
+    DMOD_TEST_EXPECT_TRUE(create_volume_image(IMAGE_PATH "p2"));
+    dmfsi_context_t p1 = g_fs.init(IMAGE_PATH "p1");
+    dmfsi_context_t p2 = g_fs.init(IMAGE_PATH "p2");
+    /* Sibling partitions do not overlap, the whole device overlaps both. */
+    DMOD_TEST_EXPECT_NOT_NULL(p1);
+    DMOD_TEST_EXPECT_NOT_NULL(p2);
+    DMOD_TEST_EXPECT_NULL(g_fs.init(IMAGE_PATH));
+    DMOD_TEST_EXPECT_EQ(dmfatfs_mkfs(IMAGE_PATH, NULL), -EBUSY);
+    g_fs.deinit(p1);
+    DMOD_TEST_EXPECT_NULL(g_fs.init(IMAGE_PATH));
+    g_fs.deinit(p2);
+    g_ctx = g_fs.init(IMAGE_PATH);
+    DMOD_TEST_EXPECT_NOT_NULL(g_ctx);
+    Dmod_FileRemove(IMAGE_PATH "p1");
+    Dmod_FileRemove(IMAGE_PATH "p2");
+}
+
+DMOD_TEST_STEP(volumes_are_independent)
+{
+    char buffer[16];
+    DMOD_TEST_EXPECT_TRUE(create_volume_image("second.img"));
+    dmfsi_context_t first  = g_ctx;
+    dmfsi_context_t second = g_fs.init("second.img");
+    DMOD_TEST_EXPECT_NOT_NULL(second);
+    if (second != NULL)
+    {
+        DMOD_TEST_EXPECT_TRUE(write_text("/same.txt", "first", DMFSI_O_TRUNC));
+        g_ctx = second;
+        DMOD_TEST_EXPECT_TRUE(write_text("/same.txt", "second", DMFSI_O_TRUNC));
+        DMOD_TEST_EXPECT_TRUE(read_text("/same.txt", buffer, sizeof(buffer)));
+        DMOD_TEST_EXPECT_EQ(strcmp(buffer, "second"), 0);
+        g_ctx = first;
+        DMOD_TEST_EXPECT_TRUE(read_text("/same.txt", buffer, sizeof(buffer)));
+        DMOD_TEST_EXPECT_EQ(strcmp(buffer, "first"), 0);
+        g_fs.deinit(second);
+    }
+    Dmod_FileRemove("second.img");
+}
+
+DMOD_TEST_STEP(volume_limit)
+{
+    /* Names built at run time: the loader does not relocate pointer tables in data. */
+    char            names[MAX_VOLUMES][8];
+    dmfsi_context_t extra[MAX_VOLUMES] = { 0 };
+    for (int i = 0; i < MAX_VOLUMES; i++)
+    {
+        memcpy(names[i], "vN.img", sizeof("vN.img"));
+        names[i][1] = (char)('1' + i);
+        DMOD_TEST_EXPECT_TRUE(create_volume_image(names[i]));
+    }
+    /* g_ctx holds one volume already */
+    for (int i = 0; i < MAX_VOLUMES - 1; i++)
+    {
+        extra[i] = g_fs.init(names[i]);
+        DMOD_TEST_EXPECT_NOT_NULL(extra[i]);
+    }
+    DMOD_TEST_EXPECT_NULL(g_fs.init(names[MAX_VOLUMES - 1]));
+    DMOD_TEST_EXPECT_EQ(dmfatfs_mkfs(names[MAX_VOLUMES - 1], NULL), -EBUSY);
+    for (int i = 0; i < MAX_VOLUMES; i++)
+    {
+        if (extra[i] != NULL)
+        {
+            g_fs.deinit(extra[i]);
+        }
+        Dmod_FileRemove(names[i]);
+    }
 }
 
 DMOD_TEST_STEP(unformatted_device_is_refused)

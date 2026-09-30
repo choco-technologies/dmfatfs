@@ -193,3 +193,119 @@ char* dmfatfs_parse_device(const char* config)
     }
     return NULL;
 }
+
+/* Working directory of the caller on the heap, NULL on failure. */
+static char* current_directory(void)
+{
+    for (size_t size = 64; size <= 4096; size *= 2)
+    {
+        char* buffer = Dmod_Malloc(size);
+        if (buffer == NULL)
+        {
+            return NULL;
+        }
+        if (Dmod_GetCwd(buffer, size) != NULL)
+        {
+            return buffer;
+        }
+        Dmod_Free(buffer);
+    }
+    return NULL;
+}
+
+/* "<cwd>/<path>" for a relative path, a copy of @p path for an absolute one. */
+static char* absolute_path(const char* path)
+{
+    if (path[0] == '/')
+    {
+        return Dmod_StrDup(path);
+    }
+    char* cwd = current_directory();
+    if (cwd == NULL)
+    {
+        return NULL;
+    }
+    size_t cwd_length = strlen(cwd);
+    char*  result     = Dmod_Malloc(cwd_length + strlen(path) + 2);
+    if (result != NULL)
+    {
+        memcpy(result, cwd, cwd_length);
+        result[cwd_length] = '/';
+        strcpy(&result[cwd_length + 1], path);
+    }
+    Dmod_Free(cwd);
+    return result;
+}
+
+/* Collapse "//", "/./" and "/<name>/../" of an absolute path, in place. */
+static void normalize_path(char* path)
+{
+    char*       out = path;
+    const char* in  = path;
+    while (*in != '\0')
+    {
+        while (*in == '/')
+        {
+            in++;
+        }
+        size_t length = 0;
+        while (in[length] != '\0' && in[length] != '/')
+        {
+            length++;
+        }
+        if (length == 2 && in[0] == '.' && in[1] == '.')
+        {
+            while (out > path && *--out != '/') {}
+        }
+        else if (length != 0 && !(length == 1 && in[0] == '.'))
+        {
+            *out++ = '/';
+            memmove(out, in, length);
+            out += length;
+        }
+        in += length;
+    }
+    if (out == path)
+    {
+        *out++ = '/';
+    }
+    *out = '\0';
+}
+
+char* dmfatfs_canonical_path(const char* path)
+{
+    char* result = (path != NULL && *path != '\0') ? absolute_path(path) : NULL;
+    if (result != NULL)
+    {
+        normalize_path(result);
+    }
+    return result;
+}
+
+/* True if @p rest is "p<digits>" - the name suffix dmdevfs gives partition nodes. */
+static bool is_partition_suffix(const char* rest)
+{
+    if (rest[0] != 'p' || rest[1] == '\0')
+    {
+        return false;
+    }
+    for (rest++; *rest != '\0'; rest++)
+    {
+        if (*rest < '0' || *rest > '9')
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool is_partition_of(const char* partition, const char* device)
+{
+    size_t length = strlen(device);
+    return strncmp(partition, device, length) == 0 && is_partition_suffix(&partition[length]);
+}
+
+bool dmfatfs_paths_overlap(const char* a, const char* b)
+{
+    return strcmp(a, b) == 0 || is_partition_of(a, b) || is_partition_of(b, a);
+}

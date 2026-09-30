@@ -43,8 +43,28 @@ The sector size must be 512 bytes. Block nodes report their size through
 `DMDRVI_IOCTL_BLOCK_GET_INFO`; other files use their file size. A node that
 cannot be opened for writing is mounted read-only.
 
-A device can be used by only one mount (or `dmfatfs_mkfs()`) at a time, and
-at most `DMFATFS_MAX_VOLUMES` (default 4) volumes can be mounted at once.
+At most `DMFATFS_MAX_VOLUMES` (default 4) volumes can be mounted (or
+formatted) at once, each on its own device.
+
+### Protection against overlapping volumes
+
+Two FatFs volumes writing the same sectors would corrupt the medium, so a
+mount or `dmfatfs_mkfs()` is refused (`-EBUSY`) while an *overlapping*
+device is mounted or being formatted:
+
+- the same node, however the path is written (relative paths are resolved
+  against the working directory, `//`, `.` and `..` are collapsed),
+- a whole device and any of its partitions, in either direction - dmdevfs
+  names partition nodes `<device>p<number>`, e.g. `/dev/dmsdio0/0` and
+  `/dev/dmsdio0/0p1`.
+
+Different partitions of one device (`0p1`, `0p2`) do not overlap and can be
+mounted at the same time.
+
+Not covered: writes that bypass dmfatfs (e.g. copying raw data onto the
+device node while it is mounted), the same medium exposed under two
+unrelated paths (e.g. dmdevfs mounted twice), and removing the medium
+while it is mounted - unmount first.
 
 ### Supported operations
 
