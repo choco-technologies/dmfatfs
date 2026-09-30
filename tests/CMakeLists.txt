@@ -1,7 +1,7 @@
 set(DMOD_MODULE_NAME        test_dmfatfs)
 set(DMOD_MODULE_VERSION     ${PROJECT_VERSION})
 set(DMOD_AUTHOR_NAME        "Patryk Kubiak")
-set(DMOD_STACK_SIZE         1024)
+set(DMOD_STACK_SIZE         4096)
 set(DMOD_PRIORITY           0)
 
 dmod_add_test(${DMOD_MODULE_NAME} ${DMOD_MODULE_VERSION}
@@ -13,6 +13,11 @@ target_include_directories(${DMOD_MODULE_NAME} PRIVATE
 )
 
 target_link_libraries(${DMOD_MODULE_NAME} dmfatfs_if)
+
+# dmfsi: the DIF the tests drive dmfatfs through
+dmod_link_modules(${DMOD_MODULE_NAME}
+    dmfsi
+)
 
 # Register the test module with ctest - this replays the same two steps CI
 # runs (see .github/templates/ci.yml.template): install the test module's

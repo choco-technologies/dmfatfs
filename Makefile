@@ -1,6 +1,6 @@
 # #############################################################################
 # 
-# 	This is an example of a simple library module.
+# 	dmfatfs - FAT/exFAT file system (FatFs based)
 #
 # #############################################################################
 DMOD_DIR=@DMOD_DIR@
@@ -24,13 +24,15 @@ DMOD_MODULE_VERSION=0.1
 DMOD_AUTHOR_NAME=Patryk Kubiak
 
 # The list of C sources
-DMOD_CSOURCES=src/dmfatfs.c
+DMOD_CSOURCES=src/dmfatfs.c src/dmfatfs_file.c src/dmfatfs_dir.c src/dmfatfs_disk.c \
+              src/dmfatfs_system.c src/dmfatfs_util.c src/dmfatfs_libc.c \
+              lib/fatfs/ff.c lib/fatfs/ffunicode.c
 
 # The list of C++ sources
 DMOD_CXXSOURCES=
 
 # The list of include directories
-DMOD_INC_DIRS=include
+DMOD_INC_DIRS=include src lib/fatfs
 
 # The list of libraries to link
 DMOD_LIBS=
