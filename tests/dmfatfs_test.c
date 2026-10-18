@@ -386,6 +386,49 @@ DMOD_TEST_STEP(big_file_round_trip)
     }
 }
 
+/* Transfers larger than the chunks dmfatfs makes them in: one call each, from an odd offset too */
+DMOD_TEST_STEP(big_transfers_in_one_call)
+{
+    uint8_t* data = Dmod_Malloc(BIG_FILE_SIZE);
+    uint8_t* back = Dmod_Malloc(BIG_FILE_SIZE + 100u);
+    void*    fp   = NULL;
+    size_t   done = 0;
+    DMOD_TEST_EXPECT_NOT_NULL(data);
+    DMOD_TEST_EXPECT_NOT_NULL(back);
+    if (data != NULL && back != NULL)
+    {
+        for (uint32_t i = 0; i < BIG_FILE_SIZE; i++)
+        {
+            data[i] = pattern_byte(i);
+        }
+        DMOD_TEST_EXPECT_EQ(g_fs.fopen(g_ctx, &fp, "/once.bin", DMFSI_O_WRONLY | DMFSI_O_CREAT, 0), DMFSI_OK);
+        DMOD_TEST_EXPECT_EQ(g_fs.fwrite(g_ctx, fp, data, BIG_FILE_SIZE, &done), DMFSI_OK);
+        DMOD_TEST_EXPECT_EQ(done, (size_t)BIG_FILE_SIZE);
+        DMOD_TEST_EXPECT_EQ(g_fs.fclose(g_ctx, fp), DMFSI_OK);
+
+        /* More than there is: what there is */
+        DMOD_TEST_EXPECT_EQ(g_fs.fopen(g_ctx, &fp, "/once.bin", DMFSI_O_RDONLY, 0), DMFSI_OK);
+        DMOD_TEST_EXPECT_EQ(g_fs.fread(g_ctx, fp, back, BIG_FILE_SIZE + 100u, &done), DMFSI_OK);
+        DMOD_TEST_EXPECT_EQ(done, (size_t)BIG_FILE_SIZE);
+        DMOD_TEST_EXPECT_TRUE(memcmp(back, data, BIG_FILE_SIZE) == 0);
+
+        /* From the middle of a sector */
+        DMOD_TEST_EXPECT_EQ(g_fs.lseek(g_ctx, fp, 1001, DMFSI_SEEK_SET), 1001);
+        DMOD_TEST_EXPECT_EQ(g_fs.fread(g_ctx, fp, back, BIG_FILE_SIZE - 1001u, &done), DMFSI_OK);
+        DMOD_TEST_EXPECT_EQ(done, (size_t)(BIG_FILE_SIZE - 1001u));
+        DMOD_TEST_EXPECT_TRUE(memcmp(back, data + 1001, BIG_FILE_SIZE - 1001u) == 0);
+        DMOD_TEST_EXPECT_EQ(g_fs.fclose(g_ctx, fp), DMFSI_OK);
+    }
+    if (data != NULL)
+    {
+        Dmod_Free(data);
+    }
+    if (back != NULL)
+    {
+        Dmod_Free(back);
+    }
+}
+
 /* Names found in @p path, '|'-separated, in directory order. */
 static void list_dir(const char* path, char* names, size_t size)
 {
