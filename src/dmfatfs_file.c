@@ -6,7 +6,15 @@
 #include "dmfatfs_internal.h"
 #include <string.h>
 
-#define MAX_TRANSFER    ((size_t)(UINT)-1)
+/*
+ * FatFs holds the volume's mutex for the whole of an f_read() / f_write(), so
+ * one large transfer keeps every other thread off the volume until it is done
+ * (a picture of a few hundred KB read at once: an audio stream of another
+ * thread runs dry). Transfers are made in chunks of CHUNK bytes - between two
+ * of them the mutex is free, and a thread waiting for it (the one of the
+ * highest priority first) takes it.
+ */
+#define CHUNK           16384u
 
 static dmfatfs_file_t* get_file(dmfsi_context_t ctx, void* fp)
 {
@@ -115,26 +123,44 @@ dmod_dmfsi_dif_api_declaration( 1.0, dmfatfs, int, _fread, (dmfsi_context_t ctx,
     {
         return DMFSI_ERR_INVALID;
     }
-    UINT    done   = 0;
-    FRESULT result = f_read(&file->fil, buffer, (UINT)((size < MAX_TRANSFER) ? size : MAX_TRANSFER), &done);
+    size_t  total  = 0;
+    FRESULT result = FR_OK;
+    while (result == FR_OK && total < size)
+    {
+        UINT n    = (size - total < CHUNK) ? (UINT)(size - total) : CHUNK;
+        UINT done = 0;
+        result = f_read(&file->fil, (uint8_t*)buffer + total, n, &done);
+        total += done;
+        if (done < n)
+        {
+            break;      /* The end of the file */
+        }
+    }
     if (read != NULL)
     {
-        *read = done;
+        *read = total;
     }
     return dmfatfs_to_dmfsi(result);
 }
 
 static int write_file(dmfatfs_file_t* file, const void* buffer, size_t size, size_t* written)
 {
-    UINT    done   = 0;
+    size_t  total  = 0;
     FRESULT result = file->append ? f_lseek(&file->fil, f_size(&file->fil)) : FR_OK;
-    if (result == FR_OK)
+    while (result == FR_OK && total < size)
     {
-        result = f_write(&file->fil, buffer, (UINT)((size < MAX_TRANSFER) ? size : MAX_TRANSFER), &done);
+        UINT n    = (size - total < CHUNK) ? (UINT)(size - total) : CHUNK;
+        UINT done = 0;
+        result = f_write(&file->fil, (const uint8_t*)buffer + total, n, &done);
+        total += done;
+        if (done < n)
+        {
+            break;      /* The volume is full */
+        }
     }
     if (written != NULL)
     {
-        *written = done;
+        *written = total;
     }
     return dmfatfs_to_dmfsi(result);
 }

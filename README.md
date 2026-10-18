@@ -17,7 +17,9 @@ or, on the host, on an image file.
 - FAT12, FAT16, FAT32 and exFAT, long file names (UTF-8)
 - whole disks with an MBR/GPT partition table, partition nodes and
   "superfloppy" devices
-- several volumes mounted at once, thread-safe (FatFs re-entrancy on DMOD mutexes)
+- several volumes mounted at once, thread-safe (FatFs re-entrancy on DMOD mutexes);
+  a large read or write is made in 16 KB chunks, so it does not keep other
+  threads off the volume until it is done
 - refuses to mount or format a device overlapping one in use (the same node,
   or a whole device and its partition)
 - `dmfatfs_mkfs()` and the `mkfatfs` tool to format a device
